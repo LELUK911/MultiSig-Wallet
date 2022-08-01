@@ -3,22 +3,39 @@
 pragma solidity 0.8.7;
 
 contract Member {
-    address[] internal guardians;
+    // Governan's members
     address[] internal members;
+    //Governans can vote for one member for at time
     address internal pendigMembers;
+    // voteRequireNewMember using during votation, in other time  'voteRequireNewMember == 0'
     uint256 internal voteRequireNewMember;
+    // voteMember check if member already vote
     mapping(address => mapping(address => bool)) internal voteMember;
-
+    // status member in case votation Ban
     enum MemberFlag {
         BANVOTE,
         BAN
     }
+    // black list users
     mapping(address => mapping(MemberFlag => uint256)) internal blackList;
-    mapping(address => mapping(address => bool)) internal banMember;
+    // voteMember check if member already vote for ban
+    mapping(address => mapping(address => bool)) internal voteBanMember;
 
-    constructor(address[] memory _guardian) {
-        guardians = _guardian;
+    constructor(address[] memory _members) {
+        require(_members.length >= 5, "Set min 5 member");
+        for (uint256 i; i < _members.length; i++) {
+            require(_members[i] != address(0), "Set assett correct in array");
+        }
+        members = _members;
     }
+
+    //========= MODIFIER =========//
+    modifier MemberExist(address _to) {
+        require(_memberExist(_to), "Not you are actual member");
+        _;
+    }
+
+    //========= VIEW FUNCTION =========//
 
     function _memberExist(address _member)
         internal
@@ -33,6 +50,19 @@ contract Member {
         response = false;
     }
 
+    function _memberBanActual(address _member)
+        internal
+        view
+        returns (bool response)
+    {
+        if (blackList[_member][MemberFlag.BAN] == 0) {
+            response = true;
+        }
+    }
+
+    //========= INTERNAL FUNCTION =========//
+    event newProposalMember(address indexed _newMember);
+
     function _proposalnewMember(address _to, address _member)
         internal
         MemberExist(_to)
@@ -43,9 +73,17 @@ contract Member {
             "Votation for new member already in execution"
         );
         require(!_memberExist(_member), "address already present");
+        require(!_memberBanActual(_member), "member is ban");
         voteRequireNewMember = (members.length / 2) + 1;
         pendigMembers = _member;
+        emit newProposalMember(_member);
     }
+
+    event executeVote(
+        address indexed _newMember,
+        address indexed member,
+        bool _vote
+    );
 
     function _vote(address _to, bool vote) internal MemberExist(_to) {
         require(!voteMember[_to][pendigMembers], "member already take vote");
@@ -54,6 +92,7 @@ contract Member {
             "Votation for new member not in execution"
         );
         voteMember[_to][pendigMembers] = true;
+        emit executeVote(pendigMembers, _to, vote);
         if (vote == true) {
             voteRequireNewMember -= 1;
             if (voteRequireNewMember == 0) {
@@ -62,11 +101,14 @@ contract Member {
         }
     }
 
+    event addNewMember(address indexed _newMember);
+
     function _setMember() internal {
-        address newMember = pendigMembers;
-        pendigMembers = address(0);
-        members.push(newMember);
+        members.push(pendigMembers);
+        emit addNewMember(pendigMembers);
     }
+
+    event newBanProposal(address indexed newBanMember);
 
     function _proposalBanMember(address _to, address _banMember)
         internal
@@ -78,9 +120,10 @@ contract Member {
             "already in list"
         );
         blackList[_banMember][MemberFlag.BANVOTE] = 0;
+        emit newBanProposal(_banMember);
     }
 
-    //voteMember[_to][pendigMembers]
+    event executeVoteBan(address indexed memberBan, address indexed member);
 
     function _voteForBan(address _to, address _banMember)
         internal
@@ -90,9 +133,10 @@ contract Member {
             blackList[_banMember][MemberFlag.BANVOTE] >= 0,
             "Member not signal"
         );
-        require(!banMember[_to][_banMember], "member already take vote");
-        banMember[_to][_banMember] = true;
+        require(!voteBanMember[_to][_banMember], "member already take vote");
+        voteBanMember[_to][_banMember] = true;
         blackList[_banMember][MemberFlag.BANVOTE] += 1;
+        emit executeVoteBan(_banMember, _to);
         if (
             blackList[_banMember][MemberFlag.BANVOTE] ==
             (members.length / 2) + 1
@@ -101,10 +145,16 @@ contract Member {
         }
     }
 
-    function _ban(address _banMember) internal {}
+    event ban(address indexed userBan);
 
-    modifier MemberExist(address _to) {
-        require(_memberExist(_to), "Not you are actual member");
-        _;
+    function _ban(address _banMember) internal {
+        blackList[_banMember][MemberFlag.BAN] = 0;
+        for (uint256 i; i < members.length; i++) {
+            if (members[i] == _banMember) {
+                members[i] = members[members.length - 1];
+                members.pop();
+                emit ban(_banMember);
+            }
+        }
     }
 }
